@@ -10,6 +10,23 @@ drive-download-*.zip
 *.db-shm
 *.db-wal
 
+# ── 자격증명·로그 ──────────────────────────────────────────
+# 지금은 이 폴더에 없다. Claude·ChatGPT 로그인은 ~/.claude 와 키체인,
+# ~/.codex 에 있고 앱 자료는 ~/Library/Application Support 에 있다.
+# 그래도 나중에 실수로 떨어뜨릴 수 있으니 미리 막아둔다.
+.claude/
+.claude.json
+.codex/
+.env
+.env.*
+.netrc
+*.log
+*.pem
+*.key
+*credentials*
+*token*
+!packaging/check_*.py
+
 # ── 빌드 산출물 ────────────────────────────────────────────
 # .app 은 빌드하면 다시 만들어진다. 남겨두면 macOS 가 설치된 앱으로 잡아
 # 목록에 여러 개로 보인다.
