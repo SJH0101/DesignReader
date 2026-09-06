@@ -1,0 +1,257 @@
+"""Claude Code 초기 세팅 — 상태 점검, 자동 설치, 로그인 띄우기."""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+from . import ai
+
+# npm 이 PATH 에 없을 때 흔히 있는 자리
+_NPM_DIRS = [
+    Path.home() / ".local/bin", Path.home() / ".volta/bin",
+    Path.home() / ".nvm/versions/node", Path("/opt/homebrew/bin"),
+    Path("/usr/local/bin"), Path("/usr/bin"),
+]
+
+
+def _find(name: str) -> str | None:
+    p = shutil.which(name)
+    if p:
+        return p
+    for d in _NPM_DIRS:
+        c = d / name
+        if c.exists() and os.access(c, os.X_OK):
+            return str(c)
+    # nvm 처럼 버전 폴더 아래 있는 경우
+    nvm = Path.home() / ".nvm/versions/node"
+    if nvm.exists():
+        for v in sorted(nvm.iterdir(), reverse=True):
+            c = v / "bin" / name
+            if c.exists():
+                return str(c)
+    return None
+
+
+def _env() -> dict:
+    env = dict(os.environ)
+    for k in ("ANTHROPIC_BASE_URL", "CLAUDE_CODE_SSE_PORT", "CLAUDECODE"):
+        env.pop(k, None)
+    extra = [str(d) for d in _NPM_DIRS if d.exists()]
+    env["PATH"] = os.pathsep.join(
+        dict.fromkeys(env.get("PATH", "").split(os.pathsep) + extra))
+    return env
+
+
+def logged_in() -> bool | None:
+    """True=로그인됨, False=안 됨, None=CLI 자체가 없음."""
+    exe = ai.find_cli()
+    if not exe:
+        return None
+    try:
+        r = subprocess.run([exe, "-p", "ok", "--output-format", "json"],
+                           capture_output=True, text=True, timeout=60,
+                           env=_env())
+        d = json.loads(r.stdout or "{}")
+        msg = (d.get("result") or "").lower()
+        if d.get("is_error") and ("not logged in" in msg or "/login" in msg):
+            return False
+        return not d.get("is_error", False)
+    except Exception:                                   # noqa: BLE001
+        return False
+
+
+def probe_gpt() -> dict:
+    """GPT(Codex) 쪽 상태. codex 는 npm 으로만 깔 수 있다."""
+    if os.environ.get("READER_NO_AI"):
+        return {"cli": None, "logged_in": None, "ready": False,
+                "can_auto": bool(_find("npm")), "npm": None}
+    cli = ai.find_codex()
+    login = None
+    if cli:
+        try:
+            r = subprocess.run([cli, "login", "status"], capture_output=True,
+                               text=True, timeout=45, env=_env())
+            low = ((r.stdout or "") + (r.stderr or "")).lower()
+            login = not ("not logged in" in low or "no codex credentials" in low)
+        except Exception:                               # noqa: BLE001
+            login = None
+    npm = _find("npm")
+    return {"cli": cli, "logged_in": login, "npm": npm,
+            "ready": bool(cli) and login is True,
+            "can_auto": bool(npm)}
+
+
+def install_codex(progress=None) -> tuple[bool, str]:
+    npm = _find("npm")
+    if not npm:
+        return False, ("GPT 를 쓰려면 Node.js 가 필요합니다.\n"
+                       "nodejs.org 에서 LTS 를 설치한 뒤 다시 눌러 주세요.\n"
+                       "(Claude 쪽은 Node 없이도 바로 됩니다)")
+    if progress:
+        progress("Codex CLI 를 내려받는 중… (1~2분 걸립니다)")
+    try:
+        r = subprocess.run([npm, "install", "-g", "@openai/codex"],
+                           capture_output=True, text=True, timeout=900,
+                           env=_env())
+    except subprocess.TimeoutExpired:
+        return False, "설치가 너무 오래 걸려 중단했습니다."
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout or "").strip()[-400:]
+        return False, f"설치에 실패했습니다.\n{tail}"
+    return True, "설치가 끝났습니다."
+
+
+def open_login_gpt() -> tuple[bool, str]:
+    exe = ai.find_codex()
+    if not exe:
+        return False, "먼저 Codex CLI 를 설치해야 합니다."
+    script = (f'tell application "Terminal"\n'
+              f'  activate\n'
+              f'  do script "clear; echo \\"ChatGPT 로그인을 시작합니다. '
+              f'브라우저가 열리면 로그인하세요.\\"; {exe} login"\n'
+              f'end tell')
+    try:
+        r = subprocess.run(["osascript", "-e", script],
+                           capture_output=True, text=True, timeout=30)
+    except Exception as e:                              # noqa: BLE001
+        return False, f"터미널을 열지 못했습니다: {e}"
+    if r.returncode != 0:
+        return False, (r.stderr or "터미널을 열지 못했습니다").strip()[:300]
+    return True, "터미널에서 로그인을 진행하세요."
+
+
+def logged_in_gpt() -> bool | None:
+    return probe_gpt()["logged_in"]
+
+
+def probe() -> dict:
+    # 처음 쓰는 사람이 보는 화면을 그대로 확인하기 위한 스위치.
+    # 이게 켜졌는데 여기만 '설치됨'이라고 하면 화면끼리 말이 어긋난다.
+    if os.environ.get("READER_NO_AI"):
+        return {"node": None, "npm": None, "cli": None, "logged_in": None,
+                "ready": False, "can_auto": True}
+    node, npm = _find("node"), _find("npm")
+    cli = ai.find_cli()
+    login = logged_in() if cli else None
+    return {
+        "node": node, "npm": npm, "cli": cli,
+        "logged_in": login,
+        "ready": bool(cli) and login is True,
+        # 공식 설치 스크립트는 Node 없이도 되므로 늘 자동 설치를 권할 수 있다
+        "can_auto": True,
+    }
+
+
+# Anthropic 이 내주는 공식 설치 스크립트. Node 도 관리자 암호도 필요 없고
+# 홈 폴더(~/.local/bin) 안에만 넣는다. npm 방식보다 걸리는 게 훨씬 적다.
+NATIVE_URL = "https://claude.ai/install.sh"
+
+
+def install_cli(progress=None) -> tuple[bool, str]:
+    """Claude Code CLI 를 설치한다.
+
+    공식 설치 스크립트를 먼저 쓴다. Node 가 없어도 되기 때문이다.
+    그게 안 되면 npm 으로 물러선다.
+    """
+    def note(m):
+        if progress:
+            progress(m)
+
+    note("Claude Code 를 내려받는 중… (1~2분 걸립니다)")
+    try:
+        got = subprocess.run(["curl", "-fsSL", "--max-time", "120", NATIVE_URL],
+                             capture_output=True, text=True, timeout=180)
+        if got.returncode == 0 and got.stdout.strip().startswith("#!"):
+            r = subprocess.run(["bash", "-s", "stable"], input=got.stdout,
+                               capture_output=True, text=True, timeout=900,
+                               env=_env())
+            if r.returncode == 0 and ai.find_cli():
+                return True, "설치가 끝났습니다."
+            native_err = (r.stderr or r.stdout or "").strip()[-300:]
+        else:
+            native_err = "설치 스크립트를 받지 못했습니다."
+    except Exception as e:                              # noqa: BLE001
+        native_err = str(e)[:200]
+
+    npm = _find("npm")
+    if not npm:
+        return False, ("설치하지 못했습니다.\n" + native_err +
+                       "\n\n인터넷 연결을 확인하고 다시 눌러보세요. "
+                       "그래도 안 되면 ‘직접 설치’ 쪽 안내를 따라 주세요.")
+    note("다른 방법으로 다시 시도하는 중…")
+    try:
+        r = subprocess.run([npm, "install", "-g", "@anthropic-ai/claude-code"],
+                           capture_output=True, text=True, timeout=900,
+                           env=_env())
+    except subprocess.TimeoutExpired:
+        return False, "설치가 너무 오래 걸려 중단했습니다."
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout or "").strip()[-400:]
+        return False, f"설치에 실패했습니다.\n{tail}"
+    return True, "설치가 끝났습니다."
+
+
+def open_login() -> tuple[bool, str]:
+    """터미널을 띄워 로그인 절차를 시작한다. 브라우저가 열린다."""
+    exe = ai.find_cli()
+    if not exe:
+        return False, "먼저 Claude Code CLI 를 설치해야 합니다."
+    # 사용자가 진행 상황을 볼 수 있어야 하므로 터미널 창에서 실행한다
+    script = (f'tell application "Terminal"\n'
+              f'  activate\n'
+              f'  do script "clear; echo \\"Claude 로그인을 시작합니다. '
+              f'브라우저가 열리면 로그인하세요.\\"; '
+              f'{exe} setup-token"\n'
+              f'end tell')
+    try:
+        r = subprocess.run(["osascript", "-e", script],
+                           capture_output=True, text=True, timeout=30)
+    except Exception as e:                              # noqa: BLE001
+        return False, f"터미널을 열지 못했습니다: {e}"
+    if r.returncode != 0:
+        return False, (r.stderr or "터미널을 열지 못했습니다").strip()[:300]
+    return True, "터미널에서 로그인을 진행하세요. 끝나면 이 창으로 돌아오면 됩니다."
+
+
+MANUAL_STEPS = [
+    {
+        "title": "1. Claude Code 설치",
+        "why": "터미널을 열고 아래를 붙여넣어 실행하세요. "
+               "홈 폴더에만 깔리고 관리자 암호는 필요 없습니다.",
+        "cmd": "curl -fsSL https://claude.ai/install.sh | bash",
+        "link": "",
+    },
+    {
+        "title": "2. 로그인",
+        "why": "실행하면 브라우저가 열립니다. Claude 계정으로 로그인하면 끝입니다. "
+               "로그인 후 이 창의 ‘다시 확인’을 누르세요.",
+        "cmd": "claude setup-token",
+        "link": "",
+    },
+]
+
+
+GPT_STEPS = [
+    {
+        "title": "1. Node.js 설치",
+        "why": "Codex CLI 는 npm 으로만 깔 수 있습니다. 이미 있다면 건너뛰세요.",
+        "cmd": "",
+        "link": "https://nodejs.org",
+    },
+    {
+        "title": "2. Codex 설치",
+        "why": "터미널을 열고 아래를 붙여넣어 실행하세요.",
+        "cmd": "npm install -g @openai/codex",
+        "link": "",
+    },
+    {
+        "title": "3. 로그인",
+        "why": "브라우저가 열리면 ChatGPT 계정으로 로그인하세요. "
+               "Plus·Pro 같은 유료 플랜이어야 구독 로그인이 됩니다.",
+        "cmd": "codex login",
+        "link": "",
+    },
+]

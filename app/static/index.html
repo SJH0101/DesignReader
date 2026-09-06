@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DesignReader</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<aside id="sidebar">
+  <div class="brand">
+    <h1>DesignReader<span id="aiDot" class="dot" title="확인 중"></span><span id="aiLab" class="dot-lab"></span></h1>
+    <div class="sub">원서 강독 · 한영 병기</div>
+  </div>
+
+  <div class="side-tools">
+    <button id="connectBtn" class="ghost wide warn hidden">⚠︎ Claude 연결하기</button>
+    <button id="addDocBtn" class="ghost wide">＋ 문서 추가</button>
+    <button id="askBtn" class="ghost wide">💬 그냥 질문하기</button>
+  </div>
+
+  <div class="searchbox">
+    <input id="q" type="search" placeholder="전체 검색 (원문·번역)" autocomplete="off">
+  </div>
+
+  <div class="list-head">
+    <span>교재</span>
+    <button id="newFolderBtn" class="mini" title="새 폴더">＋ 폴더</button>
+  </div>
+  <nav id="doclist"></nav>
+
+  <div class="side-foot">
+    <button id="notesBtn" class="ghost">메모 모음</button>
+    <button id="setBtn" class="ghost">설정</button>
+    <button id="claudeBtn" class="ghost">Claude 앱</button>
+  </div>
+</aside>
+
+<main id="main">
+  <header id="topbar">
+    <div class="tb-left">
+      <h2 id="docTitle">문서를 선택하세요</h2>
+      <div id="docMeta" class="meta"></div>
+    </div>
+    <div class="tb-find" id="findBar">
+      <span class="find-ico">⌕</span>
+      <input id="find" type="search" placeholder="이 문서에서 찾기  ⌘F"
+             autocomplete="off">
+      <span id="findCount" class="find-count"></span>
+      <button id="findPrev" class="find-nav" title="이전 결과 (Shift+Enter)"
+              disabled>↑</button>
+      <button id="findNext" class="find-nav" title="다음 결과 (Enter)"
+              disabled>↓</button>
+    </div>
+    <div class="tb-right">
+      <div class="seg" id="viewmode">
+        <button data-mode="page" class="on" data-short="지면">지면+번역</button>
+        <button data-mode="ko" data-short="번역">번역</button>
+        <button data-mode="en" data-short="원문">영어 전사</button>
+      </div>
+      <button id="preBtn" class="ghost pre-btn"
+              title="이 교재를 통째로 미리 번역합니다. 그 뒤로는 읽는 동안 호출이 없어 권한 창도 뜨지 않습니다.">미리 번역</button>
+      <button id="helpBtn" class="icon" title="사용법">?</button>
+      <button id="linkToggle" class="switch on" role="switch" aria-checked="true"
+              title="지면과 번역을 서로 짚어 보여줍니다">
+        <span class="sw-lab">대치</span>
+        <span class="sw-track"><span class="sw-knob"></span></span>
+      </button>
+      <div class="zoomgrp" id="pagezoom" title="지면 크기">
+        <span class="zg-lab">지면</span>
+        <button id="pzOut" title="지면 축소">−</button>
+        <span id="pzLabel">100%</span>
+        <button id="pzIn" title="지면 확대">＋</button>
+        <button id="pzReset" title="원래 크기">⤢</button>
+      </div>
+      <div class="zoomgrp" title="글자 크기">
+        <span class="zg-lab">글자</span>
+        <button id="fontMinus" title="글자 작게">A−</button>
+        <button id="fontPlus" title="글자 크게">A+</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="reader">
+    <div id="welcome">
+      <h3 id="welcomeTitle">왼쪽에서 교재를 고르세요</h3>
+      <p><b>지면</b> 보기는 원본 PDF를 그대로 띄우고 그 아래에 번역을 붙입니다.<br>
+      문장을 <b>드래그</b>하면 그 부분에 대해 물어볼 수 있습니다.</p>
+    </div>
+    <div id="paras"></div>
+    <div id="more"></div>
+  </div>
+</main>
+
+<aside id="panel" class="closed">
+  <div class="p-head">
+    <span id="pTitle">묻기</span>
+    <div class="p-head-r">
+      <button id="pClear" class="icon" title="대화 비우기">↺</button>
+      <button id="pClose" class="icon">✕</button>
+    </div>
+  </div>
+
+  <div id="pCtx" class="p-ctx hidden">
+    <div class="ctx-label">선택한 부분</div>
+    <div id="pCtxText" class="ctx-text"></div>
+    <button id="ctxClear" class="ctx-x" title="선택 해제">✕</button>
+  </div>
+
+  <div id="chat" class="chat"></div>
+
+  <div class="quick" id="quick">
+    <button data-q="이 표현이 이 문단에서 무슨 뜻인가?">뜻</button>
+    <button data-q="이 부분의 문장 구조를 분해해 설명해줘.">문장 구조</button>
+    <button data-q="이 문단의 논지를 풀어서 설명해줘.">문단 논지</button>
+    <button data-q="이 개념은 누구의 것이고 어떤 계보에 있나?">개념 계보</button>
+  </div>
+
+  <div class="composer">
+    <textarea id="chatInput" rows="1"
+      placeholder="궁금한 것을 입력하세요  (Enter 전송 · Shift+Enter 줄바꿈)"></textarea>
+    <button id="sendBtn" class="send">↑</button>
+  </div>
+  <div class="p-foot">
+    <button id="saveVocab" class="ghost">단어장에 저장</button>
+    <span id="modelTag" class="stat"></span>
+  </div>
+</aside>
+
+<input id="fileInput" type="file" accept="application/pdf" multiple hidden>
+<div id="ctxmenu" class="hidden"></div>
+
+<svg id="linkLayer"></svg>
+
+<div id="memoLayer"></div>
+
+<div id="modal" class="hidden">
+  <div class="sheet">
+    <h3>설정</h3>
+    <label>쓸 AI
+      <select id="engineSel"></select>
+    </label>
+    <div id="engineHint" class="hint eng-hint"></div>
+
+    <div id="claudeOpts">
+      <label>해설·대화 모델
+        <select id="modelChat"></select>
+      </label>
+      <label>번역 모델
+        <select id="modelTrans"></select>
+      </label>
+    </div>
+    <div id="gptOpts" class="hidden">
+      <label>GPT 모델
+        <select id="gptModel"></select>
+      </label>
+    </div>
+    <div class="lib">
+      <div class="lib-row">
+        <span>교재 PDF 폴더</span>
+        <button id="libPick" class="mini">폴더 선택</button>
+      </div>
+      <div id="libState" class="lib-state">확인 중…</div>
+    </div>
+    <p class="hint">번역은 분량이 많습니다. 대량 번역은 Sonnet이 빠르고
+      저렴하며, 까다로운 이론서는 Opus가 정확합니다.</p>
+    <div class="sheet-foot">
+      <button id="modalClose" class="ghost">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div id="setupModal" class="hidden">
+  <div class="sheet wide">
+    <h3>AI 연결</h3>
+    <p class="hint">둘 중 하나만 연결해도 됩니다. 둘 다 해두면 설정에서 골라 씁니다.</p>
+
+    <div class="conn-grid">
+      <div class="conn-card" id="connClaude">
+        <div class="conn-head">
+          <b>Claude</b>
+          <span class="conn-state" id="stClaude">확인 중…</span>
+        </div>
+        <p class="conn-why">Node 설치가 필요 없습니다. 이 단추 하나면 됩니다.</p>
+        <button class="primary big" data-conn="claude">연결하기</button>
+        <details class="setup-manual">
+          <summary>직접 설치하기</summary>
+          <div id="manualSteps"></div>
+        </details>
+      </div>
+
+      <div class="conn-card" id="connGpt">
+        <div class="conn-head">
+          <b>GPT</b>
+          <span class="conn-state" id="stGpt">확인 중…</span>
+        </div>
+        <p class="conn-why">ChatGPT 유료 플랜(Plus·Pro)이 있어야 하고,
+          설치에 Node.js 가 필요합니다.</p>
+        <button class="primary big" data-conn="gpt">연결하기</button>
+        <details class="setup-manual">
+          <summary>직접 설치하기</summary>
+          <div id="gptSteps"></div>
+        </details>
+      </div>
+    </div>
+
+    <div id="autoLog" class="setup-log hidden"></div>
+
+    <div class="sheet-foot">
+      <button id="setupRecheck" class="ghost">다시 확인</button>
+      <button id="setupClose" class="ghost">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div id="usageModal" class="hidden">
+  <div class="sheet">
+    <h3>사용량</h3>
+    <table class="usage-t"><tbody id="usageRows"></tbody></table>
+    <p class="hint" id="usageNote"></p>
+    <div class="sheet-foot">
+      <button id="usageClose" class="ghost">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div id="helpModal" class="hidden">
+  <div class="sheet">
+    <h3>사용법</h3>
+    <dl class="help">
+      <dt>읽기</dt>
+      <dd>왼쪽은 원본 지면, 오른쪽은 그 쪽의 번역입니다.
+          위 <b>지면+번역 / 번역 / 영어 전사</b>로 보기를 바꿉니다.</dd>
+      <dt>대치</dt>
+      <dd>켜 두면 한쪽을 짚었을 때 반대쪽 위치가 표시됩니다.
+          읽기에만 집중하려면 끄세요.</dd>
+      <dt>묻기 · 메모</dt>
+      <dd>글을 드래그한 뒤 <b>오른쪽 클릭</b>하면 묻기 · 메모 · 복사가 나옵니다.
+          메모는 끈 범위에 붙고, 오른쪽 여백에 ✎ 표시가 남습니다.</dd>
+      <dt>찾기</dt>
+      <dd><b>⌘F</b>로 이 문서 안을 찾습니다. 결과가 원문에서 나왔는지
+          번역에서 나왔는지 구분해 보여줍니다.</dd>
+      <dt>번역</dt>
+      <dd>읽는 대로 자동으로 채워집니다. 한 번 번역한 곳은 저장되어
+          다시 부르지 않습니다.</dd>
+    </dl>
+    <div class="sheet-foot">
+      <button id="helpClose" class="ghost">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

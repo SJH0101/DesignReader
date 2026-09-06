@@ -1,0 +1,13 @@
+# 직접 쓰는 것만 적는다. 나머지는 이것들이 알아서 끌고 온다.
+fastapi==0.141.1
+uvicorn==0.52.4
+python-multipart==0.0.32     # PDF 업로드 받기
+pymupdf==1.28.2              # PDF 읽기·지면 그리기
+pywebview==6.2.1             # 앱 창 (WKWebView)
+
+# 스캔본 읽기 — macOS Vision 프레임워크
+pyobjc-framework-Vision==12.2.2
+pyobjc-framework-Quartz==12.2.2
+
+# 빌드에만 필요하다
+pyinstaller==6.22.2
