@@ -961,6 +961,8 @@ def setup_status():
     st["steps"] = setup_mod.MANUAL_STEPS
     st["gpt"] = setup_mod.probe_gpt()
     st["gpt_steps"] = setup_mod.GPT_STEPS
+    st["account"] = setup_mod.account_info("claude")
+    st["gpt"]["account"] = setup_mod.account_info("gpt")
     return st
 
 

@@ -1995,6 +1995,27 @@ async function refreshSetup() {
   const g = st.gpt || {};
   paint("stGpt", g.ready, g.cli, g.logged_in);
 
+  // 누구 계정으로 붙었는지, 돈이 나가는 방식인지 보여준다.
+  // 남의 컴퓨터에 깔아줄 때 이게 없으면 확인할 방법이 없다.
+  const acct = (id, a, ready) => {
+    const e = document.getElementById(id);
+    if (!e) return;
+    if (!ready || !a) { e.textContent = ""; e.className = "conn-acct"; return; }
+    if (a.billed) {
+      e.className = "conn-acct warn-acct";
+      e.innerHTML = "<b>API 키로 연결됨 — 쓴 만큼 요금이 붙습니다</b>";
+      return;
+    }
+    const bits = [];
+    if (a.account) bits.push(esc(a.account));
+    if (a.plan) bits.push(a.plan === "free" ? "무료" : esc(a.plan));
+    e.className = "conn-acct";
+    e.textContent = (bits.join(" · ") || "구독으로 연결됨")
+                  + (a.plan === "free" ? " (한도가 빨리 찹니다)" : "");
+  };
+  acct("acctClaude", st.account, st.ready);
+  acct("acctGpt", g.account, g.ready);
+
   const btn = (which, ready, cli) => {
     const b = document.querySelector(`[data-conn="${which}"]`);
     if (!b) return;

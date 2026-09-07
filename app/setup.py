@@ -129,20 +129,43 @@ def _env() -> dict:
     return env
 
 
-def logged_in() -> bool | None:
-    """True=로그인됨, False=안 됨, None=CLI 자체가 없음."""
+def claude_auth() -> dict | None:
+    """claude auth status 가 주는 것을 그대로 돌려준다.
+
+    예전에는 `claude -p ok` 를 실제로 한 번 돌려 로그인 여부를 봤다.
+    그러면 화면을 열 때마다 진짜 호출이 나가 토큰을 쓰고 10초 넘게 걸렸다.
+    auth status 는 0.2초면 되고 계정·요금제까지 알려준다.
+    """
     exe = ai.find_cli()
     if not exe:
         return None
     try:
-        r = subprocess.run([exe, "-p", "ok", "--output-format", "json"],
+        r = subprocess.run([exe, "auth", "status"], capture_output=True,
+                           text=True, timeout=30, env=_env())
+        return json.loads(r.stdout or "{}")
+    except Exception:                                   # noqa: BLE001
+        return None
+
+
+def logged_in() -> bool | None:
+    """True=로그인됨, False=안 됨, None=CLI 자체가 없음."""
+    if not ai.find_cli():
+        return None
+    d = claude_auth()
+    if d is None:
+        return False
+    if "loggedIn" in d:
+        return bool(d["loggedIn"])
+    # auth status 가 없는 옛 버전이면 직접 한 번 불러 본다
+    try:
+        r = subprocess.run([ai.find_cli(), "-p", "ok", "--output-format", "json"],
                            capture_output=True, text=True, timeout=60,
                            env=_env())
-        d = json.loads(r.stdout or "{}")
-        msg = (d.get("result") or "").lower()
-        if d.get("is_error") and ("not logged in" in msg or "/login" in msg):
+        j = json.loads(r.stdout or "{}")
+        msg = (j.get("result") or "").lower()
+        if j.get("is_error") and ("not logged in" in msg or "/login" in msg):
             return False
-        return not d.get("is_error", False)
+        return not j.get("is_error", False)
     except Exception:                                   # noqa: BLE001
         return False
 
@@ -369,3 +392,63 @@ GPT_STEPS = [
         "link": "",
     },
 ]
+
+
+# ---------------- 연결된 계정 ----------------
+def _jwt_claims(tok: str) -> dict:
+    """서명은 확인하지 않는다. 화면에 보여줄 값만 꺼내 쓴다."""
+    import base64
+    import json as _json
+    try:
+        body = tok.split(".")[1]
+        body += "=" * (-len(body) % 4)
+        return _json.loads(base64.urlsafe_b64decode(body))
+    except Exception:                                   # noqa: BLE001
+        return {}
+
+
+def account_info(engine: str) -> dict:
+    """어느 계정으로 붙어 있는지, 구독인지 종량과금인지.
+
+    남의 컴퓨터에 깔아줄 때 이걸 못 보면 곤란하다. API 키로 붙어 있으면
+    쓴 만큼 돈이 나가는데, 화면에는 그냥 '연결됨' 으로만 보이기 때문이다.
+    토큰 자체는 절대 내보내지 않는다.
+    """
+    out = {"engine": engine, "account": None, "plan": None,
+           "mode": None, "billed": None}
+
+    if engine == "gpt":
+        if os.environ.get("OPENAI_API_KEY"):
+            out.update(mode="apikey", billed=True)
+            return out
+        f = Path.home() / ".codex" / "auth.json"
+        if not f.exists():
+            return out
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:                               # noqa: BLE001
+            return out
+        mode = d.get("auth_mode")
+        if d.get("OPENAI_API_KEY") or mode == "apikey":
+            out.update(mode="apikey", billed=True)
+            return out
+        c = _jwt_claims((d.get("tokens") or {}).get("id_token") or "")
+        auth = c.get("https://api.openai.com/auth", {}) or {}
+        out.update(mode="chatgpt", billed=False,
+                   account=c.get("email") or c.get("preferred_username"),
+                   plan=auth.get("chatgpt_plan_type"))
+        return out
+
+    # Claude
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        out.update(mode="apikey", billed=True)
+        return out
+    d = claude_auth() or {}
+    if d.get("loggedIn"):
+        api = d.get("authMethod") in ("apiKey", "api_key") or \
+            d.get("apiProvider") in ("bedrock", "vertex")
+        out.update(mode="apikey" if api else "subscription", billed=bool(api),
+                   account=d.get("email"), plan=d.get("subscriptionType"))
+    elif ai.find_cli():
+        out.update(mode="subscription", billed=False)
+    return out

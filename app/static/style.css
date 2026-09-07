@@ -1014,3 +1014,12 @@ body.page-en-off .sheet-ko .row .ko{
   width:100%; min-width:0; white-space:nowrap; margin-top:auto;
 }
 .conn-card .setup-manual{margin-top:10px}
+
+/* 연결된 계정 — 누구 것으로 붙었고 돈이 어떻게 나가는지 */
+.conn-acct{
+  margin:-2px 0 8px; font-size:10.5px; line-height:1.5;
+  color:var(--ink-dim); word-break:break-all;
+}
+.conn-acct:empty{display:none}
+/* API 키로 붙으면 종량 과금이다. 눈에 띄어야 한다. */
+.warn-acct{color:#d9534f}
