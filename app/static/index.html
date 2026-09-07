@@ -110,12 +110,26 @@
 
   <div id="chat" class="chat"></div>
 
-  <div class="quick" id="quick">
+  <div class="scope" id="scope">
+      <span class="scope-lab">어디까지 보고 답할까</span>
+      <div class="seg scope-seg">
+        <button data-scope="para" class="on">이 문단</button>
+        <button data-scope="section">이 장</button>
+        <button data-scope="doc">문서 전체</button>
+      </div>
+    </div>
+
+    <div class="quick" id="quick">
     <button data-q="이 표현이 이 문단에서 무슨 뜻인가?">뜻</button>
     <button data-q="이 부분의 문장 구조를 분해해 설명해줘.">문장 구조</button>
     <button data-q="이 문단의 논지를 풀어서 설명해줘.">문단 논지</button>
     <button data-q="이 개념은 누구의 것이고 어떤 계보에 있나?">개념 계보</button>
   </div>
+    <div class="quick" id="quickWide">
+      <button data-q="이 장의 논지를 요약해줘." data-scope="section">이 장 요약</button>
+      <button data-q="이 문서가 전체적으로 무엇을 주장하는지 요약해줘. 근거가 몇 쪽인지도 짚어줘." data-scope="doc">문서 요약</button>
+      <button data-q="이 문서에서 다음 물음에 답이 되는 대목을 찾아 짚어줘: " data-scope="doc" data-fill="1">본문에서 찾기</button>
+    </div>
 
   <div class="composer">
     <textarea id="chatInput" rows="1"

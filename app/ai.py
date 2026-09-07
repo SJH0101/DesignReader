@@ -150,7 +150,10 @@ def _via_cli(prompt: str, system: str | None, timeout: int,
     # 호출 고정비의 대부분은 도구 정의다. 번역·해설에는 도구가 필요 없으므로
     # 전부 끈다. 실측: 도구 켠 채 34,569 토큰 -> 끄면 6,906 토큰.
     # 지면 그림을 봐야 할 때만 Read 하나를 허용한다.
-    cmd += ["--tools", "Read"] if read_files else ["--tools", ""]
+    # 필요한 도구만 켠다. 문서 전체를 뒤져야 할 때는 Grep 이 있어야
+    # 20만 토큰짜리 책을 통째로 읽지 않고 필요한 데만 찾아본다.
+    cmd += ["--tools", read_files if isinstance(read_files, str)
+            else ("Read" if read_files else "")]
 
     if model:
         cmd += ["--model", model]

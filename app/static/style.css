@@ -1050,3 +1050,14 @@ body.page-en-off .sheet-ko .row .ko{
 .code-link{
   display:block; margin-top:8px; font-size:11px; color:var(--accent);
 }
+
+/* 어디까지 보고 답할지 고르는 줄 */
+.scope{
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  padding:8px 14px 0;
+}
+.scope-lab{font-size:10.5px; color:var(--ink-dim); flex:0 0 auto}
+.scope-seg{flex:1 1 auto; min-width:0}
+.scope-seg button{flex:1 1 0; font-size:11px; padding:4px 6px}
+#quickWide{padding-top:0}
+#quickWide button{border-style:dashed}

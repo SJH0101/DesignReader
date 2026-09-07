@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
@@ -286,7 +287,57 @@ class ChatReq(BaseModel):
     ord: int | None = None          # 없으면 문단에 매이지 않은 일반 질문
     term: str = ""
     page: int | None = None         # 스캔본에서 보고 있는 쪽
+    scope: str = "para"             # para | section | doc
     messages: list[ChatMsg]
+
+
+def _sections(doc_id: int) -> list[dict]:
+    """제목 문단을 경계로 문서를 장으로 나눈다.
+
+    '챕터 1 요약해줘' 같은 물음에 답하려면 그 장이 어디서 어디까지인지
+    알아야 한다. 우리는 이미 제목을 가려내고 있으므로 그것을 경계로 쓴다.
+    """
+    rows = con.execute(
+        "SELECT ord, kind, en, page FROM paras WHERE doc_id=? ORDER BY ord",
+        (doc_id,)).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        if r["kind"] == "heading" or not out:
+            out.append({"title": r["en"] if r["kind"] == "heading" else "(앞머리)",
+                        "from": r["ord"], "to": r["ord"], "page": r["page"]})
+        out[-1]["to"] = r["ord"]
+    return out
+
+
+def _section_of(doc_id: int, ord_: int) -> dict | None:
+    for sec in _sections(doc_id):
+        if sec["from"] <= ord_ <= sec["to"]:
+            return sec
+    return None
+
+
+def _doc_text(doc_id: int, lo: int | None = None,
+              hi: int | None = None) -> str:
+    """원문을 문단 번호와 함께 이어붙인다. 답에서 자리를 짚을 수 있게."""
+    q = "SELECT ord, kind, en, page FROM paras WHERE doc_id=?"
+    args: list = [doc_id]
+    if lo is not None:
+        q += " AND ord>=?"; args.append(lo)
+    if hi is not None:
+        q += " AND ord<=?"; args.append(hi)
+    q += " ORDER BY ord"
+    parts = []
+    for r in con.execute(q, args):
+        mark = "## " if r["kind"] == "heading" else ""
+        parts.append(f"[{r['ord']}·p.{r['page']}] {mark}{r['en']}")
+    return "\n\n".join(parts)
+
+
+@app.get("/api/doc/{doc_id}/sections")
+def doc_sections(doc_id: int):
+    secs = _sections(doc_id)
+    return [{"title": s["title"][:120], "from": s["from"], "to": s["to"],
+             "page": s["page"]} for s in secs]
 
 
 @app.post("/api/chat")
@@ -306,7 +357,8 @@ def chat(req: ChatReq):
 
     hist = [m.model_dump() for m in req.messages][-MAX_TURNS:]
     # 첫 질문이고 문단에 매여 있을 때만 캐시가 의미 있다
-    cacheable = len(hist) == 1 and bool(para_en)
+    # 범위를 넓혀 물으면 답이 그때그때 달라진다. 캐시는 문단에 매인 것만.
+    cacheable = len(hist) == 1 and bool(para_en) and req.scope == "para"
     key = hashlib.sha1(
         f"chat|{req.doc_id}|{req.ord}|{req.term.strip().lower()}|"
         f"{hist[0]['content'].strip().lower() if hist else ''}".encode()).hexdigest()
@@ -315,7 +367,34 @@ def chat(req: ChatReq):
         if hit:
             return {"answer": hit["answer"], "cached": True}
 
-    p = prompts.chat_prompt(hist, para_en, req.term, title, author)
+    # 범위 — 문단만 볼지, 그 장을 볼지, 문서 전체를 뒤질지.
+    # '챕터 1 요약해줘' 같은 물음은 문단만 줘서는 답할 수 없다.
+    sect_text, doc_file, outline = "", None, ""
+    if req.doc_id is not None and req.scope in ("section", "doc"):
+        if req.scope == "section" and req.ord is not None:
+            sec = _section_of(req.doc_id, req.ord)
+            if sec:
+                sect_text = _doc_text(req.doc_id, sec["from"], sec["to"])
+                # 너무 크면 프롬프트에 넣지 않고 파일로 넘긴다
+                if len(sect_text) > 60000:
+                    sect_text = ""
+                    req.scope = "doc"
+        if req.scope == "doc" or not sect_text:
+            secs = _sections(req.doc_id)
+            outline = "\n".join(
+                f"- {x['title'][:80]} (문단 {x['from']}~{x['to']}, p.{x['page']})"
+                for x in secs[:60])
+            try:
+                work = pathlib.Path(ai._work_dir())
+                work.mkdir(parents=True, exist_ok=True)
+                doc_file = work / f"doc-{req.doc_id}.txt"
+                doc_file.write_text(_doc_text(req.doc_id), encoding="utf-8")
+            except OSError:
+                doc_file = None
+
+    p = prompts.chat_prompt(hist, para_en, req.term, title, author,
+                            section=sect_text, outline=outline,
+                            doc_file=str(doc_file) if doc_file else "")
 
     # 스캔본은 글자 인식이 부정확하다. 지면 그림을 직접 보게 해야 답이 맞는다.
     img = None
@@ -333,9 +412,10 @@ def chat(req: ChatReq):
              f"이 지면을 눈으로 확인한 뒤 질문에 답하라. 본문을 그대로 옮겨 "
              f"적지 말고, 묻는 것에만 답하라.\n\n{p}")
     try:
+        tools = "Read,Grep" if doc_file else ("Read" if img else "")
         ans = ai.ask(p, prompts.chat_system(_doc_field(req.doc_id)),
-                     timeout=240,
-                     model=cur_model("chat"), read_files=bool(img),
+                     timeout=420 if doc_file else 240,
+                     model=cur_model("chat"), read_files=tools,
                      engine=engine())
         record_usage("chat")
     except ai.AIError as e:

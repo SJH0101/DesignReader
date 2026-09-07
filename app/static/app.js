@@ -1069,6 +1069,16 @@ function answerActions(text) {
   return bar;
 }
 
+/* 어디까지 보고 답할지. 문단만 보면 빠르고 싸다. 장·문서로 넓히면
+   본문에서 찾아 읽어야 해서 느리고 토큰도 더 든다. */
+let askScope = "para";
+
+function setScope(v) {
+  askScope = v;
+  document.querySelectorAll("#scope [data-scope]").forEach(b =>
+    b.classList.toggle("on", b.dataset.scope === v));
+}
+
 async function send(text) {
   text = (text || "").trim();
   if (!text || busy) return;
@@ -1086,7 +1096,10 @@ async function send(text) {
   c.appendChild(wait); c.scrollTop = c.scrollHeight;
 
   // 오래 걸릴 때 멈춘 것처럼 보이지 않게 문구를 바꾼다
-  const phases = ["문단 맥락을 살피는 중…", "답을 정리하는 중…", "거의 다 됐습니다…"];
+  const phases = askScope === "para"
+    ? ["문단 맥락을 살피는 중…", "답을 정리하는 중…", "거의 다 됐습니다…"]
+    : ["본문에서 해당 대목을 찾는 중…", "읽고 정리하는 중…",
+       "범위가 넓어 시간이 걸립니다…"];
   let pi = 0;
   const tick = setInterval(() => {
     const m = document.getElementById("loadMsg");
@@ -1100,7 +1113,7 @@ async function send(text) {
         doc_id: cur ? cur.id : null,
         ord: curPara,                 // null 이면 일반 질문
         page: curPage,                // 스캔본이면 이 쪽 그림을 함께 본다
-        term: ctxTerm, messages: history
+        term: ctxTerm, scope: askScope, messages: history
       })
     });
     const j = await r.json();
@@ -1137,6 +1150,26 @@ $("#sendBtn").onclick = () => {
   const v = input.value; input.value = ""; input.style.height = "auto"; send(v);
 };
 $("#quick").onclick = e => { if (e.target.dataset.q) send(e.target.dataset.q); };
+
+on("#scope", "click", e => {
+  const b = e.target.closest("[data-scope]");
+  if (b) setScope(b.dataset.scope);
+});
+
+// 넓게 묻는 빠른 단추는 범위까지 같이 바꿔준다.
+// 범위를 따로 누르게 하면 문단 범위인 채로 물어 엉뚱한 답이 나온다.
+$("#quickWide").onclick = e => {
+  const b = e.target.closest("[data-q]");
+  if (!b) return;
+  setScope(b.dataset.scope || "doc");
+  if (b.dataset.fill) {
+    const inp = $("#chatInput");
+    inp.value = b.dataset.q; inp.focus();
+    inp.setSelectionRange(inp.value.length, inp.value.length);
+    return;
+  }
+  send(b.dataset.q);
+};
 $("#pClose").onclick = () => $("#panel").classList.add("closed");
 $("#pClear").onclick = () => { history = []; drawChat(); };
 $("#ctxClear").onclick = () => setCtx("");

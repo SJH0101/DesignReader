@@ -351,12 +351,31 @@ def explain_prompt(term: str, para_en: str, title: str = "", author: str = "",
 
 
 def chat_prompt(history: list, para_en: str, term: str = "",
-                title: str = "", author: str = "") -> str:
-    """대화 이력을 하나의 프롬프트로 합친다."""
+                title: str = "", author: str = "",
+                section: str = "", outline: str = "",
+                doc_file: str = "") -> str:
+    """대화 이력을 하나의 프롬프트로 합친다.
+
+    '챕터 1 요약해줘' 처럼 넓게 묻는 물음은 문단 하나로 답할 수 없다.
+    그럴 때는 그 장을 통째로 붙이거나, 문서 전체를 적어둔 파일 자리를
+    알려주고 필요한 데만 찾아 읽게 한다.
+    """
     src = f"[출처] {author + ', ' if author else ''}{title}\n" if title else ""
     ctx = f"{src}[읽고 있는 문단]\n{para_en}\n" if para_en else src
     if term:
         ctx += f"\n[학생이 지목한 부분]\n{term}\n"
+    if outline:
+        ctx += f"\n[문서의 차례]\n{outline}\n"
+    if section:
+        ctx += (f"\n[지금 보고 있는 장의 원문]\n"
+                f"각 줄 앞의 [문단번호·쪽] 을 보고 어디를 말하는지 짚어라.\n"
+                f"{section}\n")
+    if doc_file:
+        ctx += (f"\n[문서 전체 원문 파일]\n{doc_file}\n"
+                f"이 파일에 문서의 원문이 [문단번호·쪽] 과 함께 순서대로 들어 "
+                f"있다. 물음에 답하는 데 필요한 대목을 찾아 읽어라. 파일이 클 "
+                f"수 있으니 통째로 읽지 말고 Grep 으로 먼저 찾은 뒤 그 언저리만 "
+                f"읽어라. 답할 때는 몇 쪽 어디인지 함께 짚어라.\n")
     turns = []
     for m in history:
         who = "학생" if m.get("role") == "user" else "조교"
