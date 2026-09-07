@@ -610,6 +610,42 @@ def delete_impact(doc_id: int):
     }
 
 
+@app.delete("/api/docs/{doc_id}/translations")
+def reset_translations(doc_id: int):
+    """이 문서의 번역만 지운다. 문서와 메모는 그대로 둔다.
+
+    다른 문서가 같은 대목을 쓰고 있으면 그 번역은 건드리지 않는다.
+    번역은 원문 글자로 묶여 있어서, 같은 글이 실린 다른 교재의 번역까지
+    같이 날아가면 안 된다.
+    """
+    if not con.execute("SELECT 1 FROM docs WHERE id=?", (doc_id,)).fetchone():
+        raise HTTPException(404, "문서를 찾을 수 없습니다")
+    with _lock:
+        cur = con.execute("""DELETE FROM trans WHERE h IN (
+                SELECT h FROM paras WHERE doc_id=?)
+              AND h NOT IN (SELECT h FROM paras WHERE doc_id<>?)""",
+            (doc_id, doc_id))
+        n = cur.rowcount
+        # 해설도 그 번역을 보고 만든 것이므로 같이 지운다
+        con.execute("DELETE FROM explain WHERE doc_id=?", (doc_id,))
+        con.commit()
+    return {"ok": True, "removed": max(n, 0)}
+
+
+@app.get("/api/docs/{doc_id}/translations")
+def translation_count(doc_id: int):
+    """초기화하면 몇 개가 사라지는지 미리 알려준다."""
+    q = lambda sql: con.execute(sql, (doc_id, doc_id)).fetchone()[0]
+    return {
+        "mine": q("""SELECT COUNT(*) FROM trans t
+            WHERE t.h IN (SELECT h FROM paras WHERE doc_id=?)
+              AND t.h NOT IN (SELECT h FROM paras WHERE doc_id<>?)"""),
+        "shared": q("""SELECT COUNT(*) FROM trans t
+            WHERE t.h IN (SELECT h FROM paras WHERE doc_id=?)
+              AND t.h IN (SELECT h FROM paras WHERE doc_id<>?)"""),
+    }
+
+
 @app.delete("/api/docs/{doc_id}")
 def delete_doc(doc_id: int):
     """문서를 목록에서 지운다. 번역해 둔 것도 함께 지운다.

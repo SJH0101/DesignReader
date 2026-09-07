@@ -78,6 +78,60 @@ function askConfirm({ title, body = [], ok = "삭제", danger = true }) {
   });
 }
 
+/* 문서에 할 수 있는 일. 되돌릴 수 없는 것들이라 한자리에 모아 두고
+   각각 무엇이 사라지는지 먼저 보여준다. */
+function docMenu(d, anchor) {
+  document.querySelectorAll(".fieldmenu").forEach(n => n.remove());
+  const m = el("div", "fieldmenu");
+  const items = [
+    { label: "번역 초기화", hint: "이 문서의 번역만 지웁니다. 다시 열면 새로 번역합니다.",
+      go: () => resetTranslations(d) },
+    { label: "문서 삭제", hint: "목록에서 지웁니다. 메모도 함께 사라집니다.",
+      go: () => deleteDoc(d) },
+  ];
+  for (const it of items) {
+    const b = el("button", "fm-item");
+    b.innerHTML = `<b>${esc(it.label)}</b><i>${esc(it.hint)}</i>`;
+    b.onclick = ev => { ev.stopPropagation(); m.remove(); it.go(); };
+    m.appendChild(b);
+  }
+  document.body.appendChild(m);
+  const r = anchor.getBoundingClientRect();
+  m.style.left = Math.min(r.left - 150, innerWidth - m.offsetWidth - 10) + "px";
+  m.style.top = Math.min(r.bottom + 4, innerHeight - m.offsetHeight - 10) + "px";
+  setTimeout(() => document.addEventListener("click",
+    function off() { m.remove(); document.removeEventListener("click", off); },
+    { once: true }), 0);
+}
+
+async function resetTranslations(d) {
+  let info = null;
+  try { info = await (await fetch(`/api/docs/${d.id}/translations`)).json(); }
+  catch (e) { /* 못 물어봐도 진행은 할 수 있게 둔다 */ }
+
+  const body = [];
+  if (info) {
+    if (!info.mine && !info.shared) {
+      toast("지울 번역이 없습니다");
+      return;
+    }
+    body.push(`번역해 둔 ${info.mine}문단이 지워집니다`);
+    if (info.shared)
+      body.push(`${info.shared}문단은 다른 교재도 쓰고 있어 그대로 둡니다`);
+  }
+  body.push("저장된 해설도 함께 지워집니다.");
+  body.push("문서와 메모는 그대로 남습니다. 다시 열면 새로 번역합니다.");
+
+  if (!await askConfirm({ title: `'${d.title}' 의 번역을 초기화할까요?`, body,
+                          ok: "초기화" })) return;
+  const r = await fetch(`/api/docs/${d.id}/translations`, { method: "DELETE" });
+  if (!r.ok) { toast("초기화하지 못했습니다"); return; }
+  const j = await r.json();
+  await loadDocs();
+  if (cur && cur.id === d.id) await openDoc(d.id);
+  toast(`번역 ${j.removed}문단을 지웠습니다`);
+}
+
 async function deleteDoc(d) {
   let info = null;
   try { info = await (await fetch(`/api/docs/${d.id}/impact`)).json(); }
@@ -176,12 +230,12 @@ function docNode(d) {
     <div class="a">${esc(d.author || "")}${d.author ? " · " : ""}${d.pages}쪽 · ${tag}</div>
     <div class="bar"><i style="width:${pct}%"></i></div>
     <button class="fieldchip" title="번역 분야 — 눌러서 바꿉니다">${esc(fieldLabel(d.field))}</button>
-    <button class="docdel" title="이 문서를 목록에서 지웁니다">✕</button>`;
+    <button class="docmore" title="이 문서에 할 일">⋯</button>`;
   n.querySelector(".fieldchip").onclick = ev => {
     ev.stopPropagation(); pickField(d, ev.currentTarget);
   };
-  n.querySelector(".docdel").onclick = ev => {
-    ev.stopPropagation(); deleteDoc(d);
+  n.querySelector(".docmore").onclick = ev => {
+    ev.stopPropagation(); docMenu(d, ev.currentTarget);
   };
   n.onclick = () => openDoc(d.id);
   n.ondragstart = ev => {

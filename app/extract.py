@@ -175,21 +175,28 @@ def extract(pdf_path: Path) -> dict:
 
         blk_lines = Counter(l["blk"] for l in keep)
 
+        # 크기 차이는 비율로 봐야 한다. ±1pt 라는 절대값은 본문이 10pt 인
+        # 책에 맞춘 것이라, 본문이 24pt 인 발표자료에서는 조금만 작아도
+        # 주석으로, 조금만 커도 제목으로 떨어진다. 그러면 슬라이드 전체가
+        # 잘게 부서져 본문이 거의 남지 않는다.
+        note_gap = max(0.9, body_size * 0.12)
+        head_gap = max(1.0, body_size * 0.12)
+
         # 단 배정 후 읽기 순서로 정렬
         mid = w / 2
         for l in keep:
             l["col"] = 1 if (ncol == 2 and l["x0"] >= mid - 12) else 0
             # 본문/주석을 별도 스트림으로 나눈다. 여백에 참고문헌 단을 두는
             # 조판(She-Ji 등)에서 본문 줄 사이로 주석이 끼어드는 것을 막는다.
-            l["stream"] = 1 if l["size"] < body_size - 0.9 else 0
+            l["stream"] = 1 if l["size"] < body_size - note_gap else 0
         keep.sort(key=lambda l: (l["stream"], l["col"], round(l["y0"], 1), l["x0"]))
 
         for l in keep:
             sz = l["size"]
-            is_note = sz < body_size - 0.9
+            is_note = sz < body_size - note_gap
             # 제목: 글자가 크거나(확실), 굵으면서 블록이 2줄 이하일 때만.
             # 본문 중간의 굵은 강조어가 제목으로 새는 걸 막는다.
-            big = sz > body_size + 1.0
+            big = sz > body_size + head_gap
             boldish = l["bold"] and blk_lines[l["blk"]] <= 2
             is_head = (big or boldish) and len(l["text"].strip()) < 120
             kind = "note" if is_note else ("heading" if is_head else "body")

@@ -131,15 +131,15 @@ button{font-family:inherit; cursor:pointer}
 .fieldchip:hover{border-color:var(--accent); color:var(--ink)}
 
 /* 삭제 단추 — 가리키기 전에는 숨는다. 분야 딱지는 그때 왼쪽으로 비켜준다. */
-.docdel{
+.docmore{
   position:absolute; right:6px; top:6px;
   width:17px; height:17px; padding:0; border:0; border-radius:5px;
   background:transparent; color:var(--ink-dim);
-  font-size:10px; line-height:17px; cursor:pointer;
+  font-size:12px; line-height:15px; cursor:pointer; letter-spacing:1px;
   opacity:0; transition:opacity .12s, background .12s, color .12s;
 }
-.doc:hover .docdel{opacity:.6}
-.docdel:hover{opacity:1; background:#d9534f; color:#fff}
+.doc:hover .docmore{opacity:.6}
+.docmore:hover{opacity:1; background:var(--line); color:var(--ink)}
 .doc:hover .fieldchip{right:27px}
 
 /* 되돌릴 수 없는 일을 묻는 창 */
@@ -325,7 +325,11 @@ button{font-family:inherit; cursor:pointer}
 .row.heading{padding-top:30px}
 .row.heading .en{font-weight:700; font-size:calc(var(--fs) + 2.5px); font-family:var(--ko-font)}
 .row.heading .ko{font-weight:700; font-size:calc(var(--fs) + 1px); border-left-color:var(--accent)}
-.row.note .en, .row.note .ko{font-size:12.6px; color:var(--ink-dim); line-height:1.65}
+/* 주석도 읽으라고 있는 글이다. 고정 크기로 박아두면 글자 크기를 키워도
+   혼자 작게 남는다. 본문보다 조금 작게, 설정을 따라가게 한다. */
+.row.note .en, .row.note .ko{
+  font-size:calc(var(--fs) - 2px); color:var(--ink-dim); line-height:1.65;
+}
 
 /* 보기 모드 */
 body.mode-en .row .ko{display:none}
