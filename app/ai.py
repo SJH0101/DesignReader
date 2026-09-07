@@ -54,6 +54,19 @@ _CODEX_CANDIDATES = [
 ]
 
 
+def _bundled_bin(name: str) -> str | None:
+    """앱이 직접 받아둔 Node 안에 깔린 것.
+
+    Node 가 없는 사람에게는 앱이 Node 를 받아 그 안에 codex 를 깐다.
+    그러면 /usr/local/bin 같은 흔한 자리에는 없으므로 여기도 봐야 한다.
+    """
+    d = os.environ.get("READER_DATA")
+    if not d:
+        return None
+    c = os.path.join(d, "node", "bin", name)
+    return c if os.path.exists(c) else None
+
+
 def _first_existing(cands: list[str]) -> str | None:
     for c in cands:
         p = shutil.which(c) if "/" not in c else (c if os.path.exists(c) else None)
@@ -63,11 +76,11 @@ def _first_existing(cands: list[str]) -> str | None:
 
 
 def find_cli() -> str | None:
-    return _first_existing(_CLI_CANDIDATES)
+    return _first_existing(_CLI_CANDIDATES) or _bundled_bin("claude")
 
 
 def find_codex() -> str | None:
-    return _first_existing(_CODEX_CANDIDATES)
+    return _first_existing(_CODEX_CANDIDATES) or _bundled_bin("codex")
 
 
 def engine_ready(engine: str) -> bool:
@@ -213,6 +226,11 @@ def _via_codex(prompt: str, system: str | None, timeout: int,
         cmd += ["-"]                      # 프롬프트는 표준입력으로 넘긴다
         env = dict(os.environ)
         env.pop("OPENAI_BASE_URL", None)
+        # codex 는 node 로 도는 스크립트다. 앱이 직접 받아둔 Node 가 있으면
+        # 그걸 태워야 한다. 안 그러면 설치는 됐는데 실행이 안 된다.
+        nb = os.path.join(os.environ.get("READER_DATA", ""), "node", "bin")
+        if nb and os.path.isdir(nb):
+            env["PATH"] = nb + os.pathsep + env.get("PATH", "")
         try:
             r = subprocess.run(cmd, input=body, capture_output=True, text=True,
                                timeout=timeout, env=env, cwd=_work_dir())

@@ -3,11 +3,93 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
+import tempfile
+import time
 from pathlib import Path
 
 from . import ai
+
+def data_dir() -> Path:
+    """앱이 자기 물건을 두는 자리."""
+    d = os.environ.get("READER_DATA")
+    if d:
+        return Path(d)
+    return Path.home() / "Library" / "Application Support" / "DesignReader"
+
+
+def node_bin() -> Path:
+    """앱이 직접 받아둔 Node 의 실행 파일 자리."""
+    return data_dir() / "node" / "bin"
+
+
+def ensure_node(progress=None) -> str | None:
+    """npm 을 손에 넣는다. 없으면 Node 를 받아서 앱 폴더에 둔다.
+
+    관리자 암호가 필요한 설치 프로그램(.pkg)은 쓰지 않는다. 공식 tar 를
+    풀어 홈 폴더에 두면 암호 없이도 되고, 앱을 지우면 같이 사라진다.
+    시스템 Node 는 건드리지 않는다.
+    """
+    npm = _find("npm")
+    if npm:
+        return npm
+
+    mine = node_bin() / "npm"
+    if mine.exists():
+        return str(mine)
+
+    def note(m):
+        if progress:
+            progress(m)
+
+    note("Node.js 를 내려받는 중… (2~3분 걸립니다)")
+    import json as _json
+    import platform
+    import tarfile
+    import urllib.request
+
+    arch = "arm64" if platform.machine() == "arm64" else "x64"
+    try:
+        with urllib.request.urlopen("https://nodejs.org/dist/index.json",
+                                    timeout=60) as r:
+            ver = next(v["version"] for v in _json.load(r) if v.get("lts"))
+    except Exception as e:                              # noqa: BLE001
+        return None if progress is None else _fail_note(note, e)
+
+    url = f"https://nodejs.org/dist/{ver}/node-{ver}-darwin-{arch}.tar.gz"
+    dest = data_dir() / "node"
+    tmp = data_dir() / "node.tar.gz"
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(url, timeout=600) as r, tmp.open("wb") as f:
+            shutil.copyfileobj(r, f)
+        note("Node.js 를 푸는 중…")
+        stage = data_dir() / "node.tmp"
+        shutil.rmtree(stage, ignore_errors=True)
+        with tarfile.open(tmp) as t:
+            t.extractall(stage)
+        inner = next(stage.iterdir())          # node-vX-darwin-arm64/
+        shutil.rmtree(dest, ignore_errors=True)
+        inner.rename(dest)
+        shutil.rmtree(stage, ignore_errors=True)
+    except Exception:                                   # noqa: BLE001
+        return None
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+    got = dest / "bin" / "npm"
+    return str(got) if got.exists() else None
+
+
+def _fail_note(note, e) -> None:
+    note(f"Node.js 를 받지 못했습니다: {e}")
+    return None
+
 
 # npm 이 PATH 에 없을 때 흔히 있는 자리
 _NPM_DIRS = [
@@ -39,7 +121,9 @@ def _env() -> dict:
     env = dict(os.environ)
     for k in ("ANTHROPIC_BASE_URL", "CLAUDE_CODE_SSE_PORT", "CLAUDECODE"):
         env.pop(k, None)
-    extra = [str(d) for d in _NPM_DIRS if d.exists()]
+    # 앱이 직접 받아둔 Node 를 먼저 태운다. codex 는 node 로 도는 스크립트라
+    # 이걸 빼면 설치는 되고 실행이 안 된다.
+    extra = [str(node_bin())] + [str(d) for d in _NPM_DIRS if d.exists()]
     env["PATH"] = os.pathsep.join(
         dict.fromkeys(env.get("PATH", "").split(os.pathsep) + extra))
     return env
@@ -78,18 +162,20 @@ def probe_gpt() -> dict:
             login = not ("not logged in" in low or "no codex credentials" in low)
         except Exception:                               # noqa: BLE001
             login = None
-    npm = _find("npm")
+    npm = _find("npm") or (str(node_bin() / "npm")
+                           if (node_bin() / "npm").exists() else None)
+    # Node 가 없어도 앱이 받아올 수 있으므로 늘 자동으로 할 수 있다
     return {"cli": cli, "logged_in": login, "npm": npm,
             "ready": bool(cli) and login is True,
-            "can_auto": bool(npm)}
+            "can_auto": True}
 
 
 def install_codex(progress=None) -> tuple[bool, str]:
-    npm = _find("npm")
+    npm = ensure_node(progress)
     if not npm:
-        return False, ("GPT 를 쓰려면 Node.js 가 필요합니다.\n"
-                       "nodejs.org 에서 LTS 를 설치한 뒤 다시 눌러 주세요.\n"
-                       "(Claude 쪽은 Node 없이도 바로 됩니다)")
+        return False, ("Node.js 를 받지 못했습니다.\n"
+                       "인터넷 연결을 확인하고 다시 눌러 주세요. 그래도 안 되면 "
+                       "nodejs.org 에서 LTS 를 직접 설치한 뒤 다시 눌러 주세요.")
     if progress:
         progress("Codex CLI 를 내려받는 중… (1~2분 걸립니다)")
     try:
@@ -104,23 +190,55 @@ def install_codex(progress=None) -> tuple[bool, str]:
     return True, "설치가 끝났습니다."
 
 
+_URL_RE = re.compile(r"https://\S+")
+
+
+def _spawn_login(cmd: list[str]) -> tuple[subprocess.Popen, Path]:
+    """로그인 명령을 뒤에서 돌린다. 내놓는 말은 파일로 받아둔다."""
+    out = Path(tempfile.gettempdir()) / f"dr-login-{os.getpid()}.log"
+    f = out.open("w")
+    proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, env=_env(),
+                            cwd=tempfile.gettempdir(), start_new_session=True)
+    return proc, out
+
+
+def _login_url(out: Path, wait: float = 12.0) -> str | None:
+    """로그인 주소가 찍히기를 기다렸다 뽑아낸다."""
+    end = time.time() + wait
+    while time.time() < end:
+        try:
+            txt = out.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            txt = ""
+        m = _URL_RE.search(txt)
+        if m:
+            return m.group(0).rstrip(".,")
+        time.sleep(0.4)
+    return None
+
+
 def open_login_gpt() -> tuple[bool, str]:
+    """ChatGPT 로그인. 터미널 창을 띄우지 않는다.
+
+    codex login 은 스스로 로컬 서버를 띄우고 브라우저를 연다. 그러니
+    터미널을 대신 조작할 이유가 없다 — 뒤에서 돌리고 끝나기를 기다리면 된다.
+    브라우저가 저절로 안 열리는 경우를 대비해 주소를 뽑아 직접 열어준다.
+    """
     exe = ai.find_codex()
     if not exe:
         return False, "먼저 Codex CLI 를 설치해야 합니다."
-    script = (f'tell application "Terminal"\n'
-              f'  activate\n'
-              f'  do script "clear; echo \\"ChatGPT 로그인을 시작합니다. '
-              f'브라우저가 열리면 로그인하세요.\\"; {exe} login"\n'
-              f'end tell')
     try:
-        r = subprocess.run(["osascript", "-e", script],
-                           capture_output=True, text=True, timeout=30)
+        _proc, out = _spawn_login([exe, "login"])
     except Exception as e:                              # noqa: BLE001
-        return False, f"터미널을 열지 못했습니다: {e}"
-    if r.returncode != 0:
-        return False, (r.stderr or "터미널을 열지 못했습니다").strip()[:300]
-    return True, "터미널에서 로그인을 진행하세요."
+        return False, f"로그인을 시작하지 못했습니다: {e}"
+
+    url = _login_url(out)
+    if url:
+        # codex 가 이미 열었더라도 한 번 더 여는 것은 해가 없다
+        subprocess.run(["open", url], capture_output=True, timeout=15)
+        return True, "브라우저에서 ChatGPT 계정으로 로그인해 주세요."
+    return True, "브라우저가 열립니다. ChatGPT 계정으로 로그인해 주세요."
 
 
 def logged_in_gpt() -> bool | None:
@@ -195,25 +313,20 @@ def install_cli(progress=None) -> tuple[bool, str]:
 
 
 def open_login() -> tuple[bool, str]:
-    """터미널을 띄워 로그인 절차를 시작한다. 브라우저가 열린다."""
+    """Claude 로그인. 터미널 창을 띄우지 않는다."""
     exe = ai.find_cli()
     if not exe:
         return False, "먼저 Claude Code CLI 를 설치해야 합니다."
-    # 사용자가 진행 상황을 볼 수 있어야 하므로 터미널 창에서 실행한다
-    script = (f'tell application "Terminal"\n'
-              f'  activate\n'
-              f'  do script "clear; echo \\"Claude 로그인을 시작합니다. '
-              f'브라우저가 열리면 로그인하세요.\\"; '
-              f'{exe} setup-token"\n'
-              f'end tell')
     try:
-        r = subprocess.run(["osascript", "-e", script],
-                           capture_output=True, text=True, timeout=30)
+        _proc, out = _spawn_login([exe, "setup-token"])
     except Exception as e:                              # noqa: BLE001
-        return False, f"터미널을 열지 못했습니다: {e}"
-    if r.returncode != 0:
-        return False, (r.stderr or "터미널을 열지 못했습니다").strip()[:300]
-    return True, "터미널에서 로그인을 진행하세요. 끝나면 이 창으로 돌아오면 됩니다."
+        return False, f"로그인을 시작하지 못했습니다: {e}"
+
+    url = _login_url(out)
+    if url:
+        subprocess.run(["open", url], capture_output=True, timeout=15)
+        return True, "브라우저에서 Claude 계정으로 로그인해 주세요."
+    return True, "브라우저가 열립니다. Claude 계정으로 로그인해 주세요."
 
 
 MANUAL_STEPS = [

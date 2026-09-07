@@ -81,7 +81,9 @@ def main() -> None:
     os.environ["READER_STATIC"] = str(res / "app" / "static")
 
     # 앱에서 실행하면 PATH가 빈약해 claude CLI를 못 찾는다. 흔한 경로를 보강한다.
-    extra = [str(Path.home() / ".local/bin"), str(Path.home() / ".claude/local"),
+    # 앱이 직접 받아둔 Node 를 맨 앞에 둔다 (GPT 용 codex 가 이걸로 돈다)
+    extra = [str(data / "node" / "bin"),
+             str(Path.home() / ".local/bin"), str(Path.home() / ".claude/local"),
              "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
     os.environ["PATH"] = os.pathsep.join(
         dict.fromkeys(os.environ.get("PATH", "").split(os.pathsep) + extra))
