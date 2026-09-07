@@ -1115,15 +1115,6 @@ def setup_code(req: LoginCodeReq):
     return {"ok": True, "msg": msg}
 
 
-@app.post("/api/setup/login")
-def setup_login():
-    """자동 세팅 2단계 — 터미널을 띄워 브라우저 로그인으로 넘긴다."""
-    ok, msg = setup_mod.open_login()
-    if not ok:
-        return JSONResponse({"error": msg}, status_code=400)
-    return {"ok": True, "msg": msg}
-
-
 # ---------------- Claude 앱 열기 ----------------
 @app.post("/api/open-claude")
 def open_claude():

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import pty
 import re
 import shutil
 import subprocess
@@ -224,19 +225,27 @@ def _spawn_login(cmd: list[str], key: str = "") -> tuple[subprocess.Popen, Path]
     """로그인 명령을 뒤에서 돌린다.
 
     claude 는 브라우저에서 받은 코드를 붙여넣으라고 기다린다. 그래서
-    표준입력을 열어두고, 나중에 앱에서 받은 코드를 그리로 넣어준다.
+    입력을 열어두고, 나중에 앱에서 받은 코드를 그리로 넣어준다.
     닫아버리면 영영 끝나지 않는다.
+
+    보통 파이프가 아니라 가짜 터미널(pty)로 붙인다. 이런 도구는 사람이
+    터미널 앞에 있다고 보고 묻는데, 파이프를 물리면 '터미널이 아니다'라고
+    판단해 묻지 않고 그냥 실패하는 수가 있다.
     """
     out = Path(tempfile.gettempdir()) / f"dr-login-{os.getpid()}-{key or 'x'}.log"
     f = out.open("w")
+    master, slave = pty.openpty()
     proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT,
-                            stdin=subprocess.PIPE, env=_env(),
+                            stdin=slave, env=_env(),
                             cwd=tempfile.gettempdir(), start_new_session=True)
+    os.close(slave)
+    proc._dr_stdin = master                 # 코드를 여기로 넣는다
     if key:
-        old = _PENDING.pop(key, None)
-        if old and old.poll() is None:
+        prev = _PENDING.pop(key, None)
+        if prev and prev.poll() is None:
             try:
-                old.kill()
+                prev.kill()
+                os.close(getattr(prev, "_dr_stdin", -1))
             except Exception:                           # noqa: BLE001
                 pass
         _PENDING[key] = proc
@@ -251,9 +260,15 @@ def send_login_code(engine: str, code: str) -> tuple[bool, str]:
     code = (code or "").strip()
     if not code:
         return False, "코드를 붙여넣어 주세요."
+    fd = getattr(proc, "_dr_stdin", None)
     try:
-        proc.stdin.write(code + "\n")
-        proc.stdin.flush()
+        if fd is not None:
+            os.write(fd, (code + "\n").encode())
+        elif proc.stdin:
+            proc.stdin.write(code + "\n")
+            proc.stdin.flush()
+        else:
+            return False, "코드를 넣을 통로가 없습니다. 다시 눌러 주세요."
     except Exception as e:                              # noqa: BLE001
         return False, f"코드를 전달하지 못했습니다: {e}"
     return True, "코드를 넣었습니다. 확인 중…"
