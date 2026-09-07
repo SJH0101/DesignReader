@@ -254,7 +254,7 @@ def _via_codex(prompt: str, system: str | None, timeout: int,
             raise AIError(
                 "Codex CLI에 로그인되어 있지 않습니다.\n"
                 "터미널에서 `codex login` 을 실행하고 ChatGPT 계정으로 "
-                "한 번만 로그인하면 됩니다. (유료 플랜이어야 구독 로그인이 됩니다)")
+                "한 번만 로그인하면 됩니다. (무료 계정도 되지만 한도가 빨리 찹니다)")
         if "usage limit" in low or "rate limit" in low or "429" in low \
                 or "quota" in low:
             raise AIError("ChatGPT 사용 한도에 걸렸습니다. 잠시 뒤 다시 해보세요.")
@@ -306,7 +306,7 @@ def ask(prompt: str, system: str | None = None, timeout: int = 180,
             "터미널에서 아래를 실행해 설치하세요:\n"
             "  npm install -g @openai/codex\n"
             "설치 후 `codex login` 으로 ChatGPT 계정 로그인이 필요합니다. "
-            "(유료 플랜이어야 구독 로그인이 됩니다)")
+            "(무료 계정도 됩니다. 다만 한도가 빨리 찹니다)")
 
     if model and model not in VALID:
         model = None

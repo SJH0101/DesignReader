@@ -1604,7 +1604,7 @@ $("#setBtn").onclick = async () => {
           + (e.id === "gpt"
              ? "<code>npm install -g @openai/codex</code> 를 실행한 뒤 "
                + "<code>codex login</code> 으로 ChatGPT 계정 로그인이 필요합니다. "
-               + "(유료 플랜이어야 구독 로그인이 됩니다)"
+               + "(무료 계정도 됩니다)"
              : "<code>npm install -g @anthropic-ai/claude-code</code> 를 실행한 뒤 "
                + "<code>claude</code> 로 로그인하세요.");
   };
