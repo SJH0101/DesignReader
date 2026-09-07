@@ -161,16 +161,19 @@ def _doc_field(doc_id: int) -> str:
     return (r["field"] if r and r["field"] else prompts.DEFAULT_FIELD)
 
 
+# 진행률은 '화면에 번역이 붙는 문단' 을 세야 한다. 주석도 번역해서 보여주므로
+# 여기 들어간다. 빼놓으면 주석만 번역됐을 때 퍼센트가 꿈쩍하지 않아
+# 번역이 안 되는 것처럼 보인다.
 @app.get("/api/docs")
 def list_docs():
     rows = con.execute("""
         SELECT d.id, d.title, d.author, d.pages, d.scanned, d.spread,
                d.folder_id, COALESCE(d.field,'general') AS field, d.filename,
                (SELECT COUNT(*) FROM paras p
-                 WHERE p.doc_id=d.id AND p.kind IN ('body','heading')) AS total,
+                 WHERE p.doc_id=d.id AND p.kind IN ('body','heading','note')) AS total,
                (SELECT COUNT(*) FROM paras p JOIN trans t
                  ON t.h=p.h AND t.field=COALESCE(d.field,'general')
-                 WHERE p.doc_id=d.id AND p.kind IN ('body','heading')) AS done,
+                 WHERE p.doc_id=d.id AND p.kind IN ('body','heading','note')) AS done,
                (SELECT ord FROM progress g WHERE g.doc_id=d.id) AS last_ord
         FROM docs d ORDER BY d.id""").fetchall()
     return [_with_ver(dict(r)) for r in rows]
@@ -881,7 +884,7 @@ def pretranslate(doc_id: int):
     rows = con.execute(
         "SELECT p.ord, p.en, p.h FROM paras p LEFT JOIN trans t "
         "ON t.h=p.h AND t.field=? "
-        "WHERE p.doc_id=? AND p.kind IN ('body','heading') AND t.h IS NULL "
+        "WHERE p.doc_id=? AND p.kind IN ('body','heading','note') AND t.h IS NULL "
         "AND LENGTH(p.en)>12 ORDER BY p.ord",
         (_doc_field(doc_id), doc_id)).fetchall()
     if not rows:
@@ -1270,11 +1273,11 @@ def search(q: str, limit: int = 60):
 @app.get("/api/status")
 def status():
     tot = con.execute(
-        "SELECT COUNT(*) c FROM paras WHERE kind IN ('body','heading')").fetchone()["c"]
+        "SELECT COUNT(*) c FROM paras WHERE kind IN ('body','heading','note')").fetchone()["c"]
     done = con.execute("""SELECT COUNT(*) c FROM paras p
         JOIN docs d ON d.id=p.doc_id
         JOIN trans t ON t.h=p.h AND t.field=COALESCE(d.field,'general')
-        WHERE p.kind IN ('body','heading')""").fetchone()["c"]
+        WHERE p.kind IN ('body','heading','note')""").fetchone()["c"]
     eng = engine()
     return {"ai": ai.backend(eng), "cli": ai.find_cli(),
             "engine": eng,

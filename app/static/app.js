@@ -966,17 +966,29 @@ async function flush() {
     const j = await r.json();
     if (!cur || cur.id !== at) return;
     if (j.error) { els.forEach((e, o) => markFailed(o, e)); return; }
+    let any = false;
     els.forEach((e, o) => {
       const got = j.items && j.items[String(o)];
-      if (got) applyTranslation(o, e, got);
+      if (got) { applyTranslation(o, e, got); any = true; }
       else markFailed(o, e);
     });
+    // 번역이 들어왔으면 목록의 진행률도 따라가야 한다.
+    // 화면 글자만 바꾸고 두면 다 번역해도 퍼센트가 그대로다.
+    if (any) bumpProgress();
   } catch (err) {
     els.forEach((e, o) => markFailed(o, e));
   } finally {
     inFlight--;
     if (pendingEls.size) scheduleFlush();
   }
+}
+
+/* 번역이 쌓이는 동안 목록을 매번 다시 읽으면 낭비다. 잠깐 모았다 한 번만
+   읽는다. 스크롤하며 계속 번역될 때도 숫자가 알아서 따라온다. */
+let progTimer = null;
+function bumpProgress() {
+  clearTimeout(progTimer);
+  progTimer = setTimeout(() => { loadDocs(); refreshStatus(); }, 1200);
 }
 
 function applyTranslation(ord, koEl, got) {
