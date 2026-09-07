@@ -280,6 +280,7 @@ $("#newFolderBtn").onclick = async () => {
   loadDocs();
 };
 
+let lastEngineLabel = "Claude";   // 미연결 안내에서 쓴다
 async function refreshStatus() {
   const dot = $("#aiDot"), lab = $("#aiLab");
   try {
@@ -287,6 +288,7 @@ async function refreshStatus() {
     const ok = st.ai !== "none";
     dot.className = "dot " + (ok ? "ok" : "bad");
     const who = st.engine_label || "Claude";
+    lastEngineLabel = who;
     dot.title = ok ? `${who} 연결됨 (${st.ai})`
                    : `${who} 미연결 — 눌러서 연결하세요`;
     // 연결이 안 됐을 때는 눈에 띄는 버튼을 내놓는다.
@@ -304,10 +306,13 @@ async function refreshStatus() {
     // 남은 한도는 알 수 없으니 '얼마나 빨리 쓰고 있는지'를 보여준다
     const h = st.hour || {}, s5 = st.session5h || {};
     lab.textContent = `번역 ${pct}%`;
-    if (s5.calls) lab.textContent += `  ·  5시간 ${fmtTok(s5.tokens)} (${fmtTok(h.tokens)}/h)`;
+    // GPT 로 쓰는 동안에는 사용량을 알 수 없다. 예전 Claude 수치를 그대로
+    // 띄우면 지금 그만큼 쓰고 있는 것처럼 보인다.
+    if (st.usage_known !== false && s5.calls)
+      lab.textContent += `  ·  5시간 ${fmtTok(s5.tokens)} (${fmtTok(h.tokens)}/h)`;
     lab.title = "눌러서 자세히 보기";
-    $("#modelTag").textContent =
-      (st.model_chat || "").replace("claude-", "").replace(/-\d{8}$/, "");
+    $("#modelTag").textContent = (st.model_now || st.model_chat || "")
+      .replace("claude-", "").replace(/-\d{8}$/, "");
   } catch (e) {
     dot.className = "dot bad"; lab.textContent = "-";
   }
@@ -2045,7 +2050,7 @@ function showReconnect() {
   if (document.getElementById("reconnectBox")) return;
   const box = el("div", "reconnect");
   box.id = "reconnectBox";
-  box.innerHTML = "<b>Claude에 연결되어 있지 않습니다.</b><br>" +
+  box.innerHTML = `<b>${esc(lastEngineLabel)}에 연결되어 있지 않습니다.</b><br>` +
     "번역과 해설을 쓰려면 Claude Code를 연결해야 합니다. " +
     "PDF를 넣고 원본 지면을 읽는 것은 연결 없이도 됩니다." +
     "<div><button id=\"reconnectBtn\">연결 설정 열기</button></div>";

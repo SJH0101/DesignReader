@@ -89,8 +89,14 @@ def usage():
         "rate_per_hour": w1["tokens"],
         "week_rate_per_hour": round(w7d["tokens"] / 168, 1),
         "since": first,
-        "note": "요금제 잔여량은 앱에서 알 수 없습니다. "
-                "정확한 잔여량은 터미널에서 claude 실행 후 /usage 로 확인하세요.",
+        # 지금 쓰는 쪽에 맞는 안내를 낸다. GPT 로 쓰는 동안 Claude 사용법을
+        # 안내하면 엉뚱한 곳을 보게 된다.
+        "note": ("Codex 는 사용량을 알려주지 않아 아래 수치에 GPT 사용분은 "
+                 "잡히지 않습니다. ChatGPT 한도는 chatgpt.com 에서 확인하세요."
+                 if engine() == "gpt" else
+                 "요금제 잔여량은 앱에서 알 수 없습니다. "
+                 "정확한 잔여량은 터미널에서 claude 실행 후 /usage 로 "
+                 "확인하세요."),
     }
 
 
@@ -1016,27 +1022,28 @@ def setup_auto(which: str = "claude"):
 
             job.update(stage="login", progress=0.7,
                        msg=f"{who} 로그인 창을 여는 중…")
-            ok, msg = (setup_mod.open_login_gpt() if gpt
-                       else setup_mod.open_login())
+            ok, msg, url = (setup_mod.open_login_gpt() if gpt
+                            else setup_mod.open_login())
             if not ok:
                 job.update(state="error", msg=msg, progress=1.0)
                 return
 
             # 로그인은 사람이 브라우저에서 해야 한다. 끝날 때까지 지켜본다.
-            job.update(stage="waiting", progress=0.8,
-                       msg=f"터미널이 열렸습니다. 브라우저에서 {who} 계정으로 "
-                           "로그인해 주세요. "
-                           "끝나면 여기서 저절로 넘어갑니다.")
-            for _ in range(90):                 # 최대 약 7분 30초
-                time.sleep(5)
+            # 확인은 0.1초도 안 걸리므로 자주 봐도 된다. 늦게 보면
+            # 이미 끝났는데도 멈춘 것처럼 보인다.
+            job.update(stage="waiting", progress=0.8, url=url,
+                       msg=f"브라우저가 열렸습니다. {who} 계정으로 로그인해 "
+                           "주세요. 끝나면 여기서 저절로 넘어갑니다.")
+            for _ in range(220):                # 최대 약 7분 20초
+                time.sleep(2)
                 chk = (setup_mod.logged_in_gpt() if gpt
                        else setup_mod.logged_in())
                 if chk is True:
                     job.update(state="done", ok=True, progress=1.0,
                                stage="done", msg="연결됐습니다.")
                     return
-            job.update(state="error", progress=1.0,
-                       msg="로그인이 확인되지 않았습니다. 터미널 창에서 끝까지 "
+            job.update(state="error", progress=1.0, url=url,
+                       msg="로그인이 확인되지 않았습니다. 브라우저에서 끝까지 "
                            "진행한 뒤 ‘다시 확인’을 눌러 주세요.")
         except Exception as e:                          # noqa: BLE001
             job.update(state="error", progress=1.0,
@@ -1222,7 +1229,14 @@ def status():
             "total": tot, "translated": done,
             "hour": _window(1), "session5h": _window(5), "week": _window(168),
             "model_chat": setting("model_chat"),
-            "model_trans": setting("model_trans")}
+            "model_trans": setting("model_trans"),
+            # 화면 이름표는 '지금 무엇으로 답하는지'를 보여야 한다.
+            # 엔진과 무관하게 Claude 모델을 띄우면 GPT 로 답하는데
+            # opus-5 라고 적히는 꼴이 된다.
+            "model_now": (setting("gpt_model") or "GPT"
+                          if eng == "gpt" else setting("model_chat")),
+            # Codex 는 사용량을 알려주지 않는다. 없는 수치를 보여주면 안 된다.
+            "usage_known": eng != "gpt"}
 
 
 @app.get("/")

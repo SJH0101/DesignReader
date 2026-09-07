@@ -227,18 +227,18 @@ def open_login_gpt() -> tuple[bool, str]:
     """
     exe = ai.find_codex()
     if not exe:
-        return False, "먼저 Codex CLI 를 설치해야 합니다."
+        return False, "먼저 Codex CLI 를 설치해야 합니다.", None
     try:
         _proc, out = _spawn_login([exe, "login"])
     except Exception as e:                              # noqa: BLE001
-        return False, f"로그인을 시작하지 못했습니다: {e}"
+        return False, f"로그인을 시작하지 못했습니다: {e}", None
 
     url = _login_url(out)
     if url:
         # codex 가 이미 열었더라도 한 번 더 여는 것은 해가 없다
         subprocess.run(["open", url], capture_output=True, timeout=15)
-        return True, "브라우저에서 ChatGPT 계정으로 로그인해 주세요."
-    return True, "브라우저가 열립니다. ChatGPT 계정으로 로그인해 주세요."
+        return True, "브라우저에서 ChatGPT 계정으로 로그인해 주세요.", url
+    return True, "브라우저가 열립니다. ChatGPT 계정으로 로그인해 주세요.", None
 
 
 def logged_in_gpt() -> bool | None:
@@ -316,17 +316,17 @@ def open_login() -> tuple[bool, str]:
     """Claude 로그인. 터미널 창을 띄우지 않는다."""
     exe = ai.find_cli()
     if not exe:
-        return False, "먼저 Claude Code CLI 를 설치해야 합니다."
+        return False, "먼저 Claude Code CLI 를 설치해야 합니다.", None
     try:
         _proc, out = _spawn_login([exe, "setup-token"])
     except Exception as e:                              # noqa: BLE001
-        return False, f"로그인을 시작하지 못했습니다: {e}"
+        return False, f"로그인을 시작하지 못했습니다: {e}", None
 
     url = _login_url(out)
     if url:
         subprocess.run(["open", url], capture_output=True, timeout=15)
-        return True, "브라우저에서 Claude 계정으로 로그인해 주세요."
-    return True, "브라우저가 열립니다. Claude 계정으로 로그인해 주세요."
+        return True, "브라우저에서 Claude 계정으로 로그인해 주세요.", url
+    return True, "브라우저가 열립니다. Claude 계정으로 로그인해 주세요.", None
 
 
 MANUAL_STEPS = [
