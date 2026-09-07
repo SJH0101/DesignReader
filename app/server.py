@@ -1069,9 +1069,15 @@ def setup_auto(which: str = "claude"):
             # 로그인은 사람이 브라우저에서 해야 한다. 끝날 때까지 지켜본다.
             # 확인은 0.1초도 안 걸리므로 자주 봐도 된다. 늦게 보면
             # 이미 끝났는데도 멈춘 것처럼 보인다.
+            # Claude 는 브라우저에서 받은 코드를 붙여넣어야 끝난다.
+            # GPT(codex) 는 제자리에서 알아서 끝난다.
             job.update(stage="waiting", progress=0.8, url=url,
-                       msg=f"브라우저가 열렸습니다. {who} 계정으로 로그인해 "
-                           "주세요. 끝나면 여기서 저절로 넘어갑니다.")
+                       needs_code=not gpt, which=which,
+                       msg=(f"브라우저가 열렸습니다. {who} 계정으로 로그인한 뒤, "
+                            "받은 코드를 아래 칸에 붙여넣어 주세요."
+                            if not gpt else
+                            f"브라우저가 열렸습니다. {who} 계정으로 로그인해 "
+                            "주세요. 끝나면 여기서 저절로 넘어갑니다."))
             for _ in range(220):                # 최대 약 7분 20초
                 time.sleep(2)
                 chk = (setup_mod.logged_in_gpt() if gpt
@@ -1089,6 +1095,24 @@ def setup_auto(which: str = "claude"):
 
     threading.Thread(target=work, daemon=True).start()
     return {"job": job_id}
+
+
+class LoginCodeReq(BaseModel):
+    engine: str = "claude"
+    code: str
+
+
+@app.post("/api/setup/code")
+def setup_code(req: LoginCodeReq):
+    """브라우저에서 받은 로그인 코드를 넣어준다.
+
+    Claude 로그인은 코드를 붙여넣는 방식이라, 앱이 뒤에서 돌리면 넣을 곳이
+    없어 영영 끝나지 않는다. 화면에서 받아 그대로 전달한다.
+    """
+    ok, msg = setup_mod.send_login_code(req.engine, req.code)
+    if not ok:
+        return JSONResponse({"error": msg}, status_code=400)
+    return {"ok": True, "msg": msg}
 
 
 @app.post("/api/setup/login")

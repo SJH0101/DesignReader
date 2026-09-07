@@ -216,14 +216,47 @@ def install_codex(progress=None) -> tuple[bool, str]:
 _URL_RE = re.compile(r"https://\S+")
 
 
-def _spawn_login(cmd: list[str]) -> tuple[subprocess.Popen, Path]:
-    """로그인 명령을 뒤에서 돌린다. 내놓는 말은 파일로 받아둔다."""
-    out = Path(tempfile.gettempdir()) / f"dr-login-{os.getpid()}.log"
+# 로그인 절차가 진행 중인 프로세스. 코드를 받아 넣어줘야 하는 경우가 있다.
+_PENDING: dict[str, subprocess.Popen] = {}
+
+
+def _spawn_login(cmd: list[str], key: str = "") -> tuple[subprocess.Popen, Path]:
+    """로그인 명령을 뒤에서 돌린다.
+
+    claude 는 브라우저에서 받은 코드를 붙여넣으라고 기다린다. 그래서
+    표준입력을 열어두고, 나중에 앱에서 받은 코드를 그리로 넣어준다.
+    닫아버리면 영영 끝나지 않는다.
+    """
+    out = Path(tempfile.gettempdir()) / f"dr-login-{os.getpid()}-{key or 'x'}.log"
     f = out.open("w")
     proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL, env=_env(),
+                            stdin=subprocess.PIPE, env=_env(),
                             cwd=tempfile.gettempdir(), start_new_session=True)
+    if key:
+        old = _PENDING.pop(key, None)
+        if old and old.poll() is None:
+            try:
+                old.kill()
+            except Exception:                           # noqa: BLE001
+                pass
+        _PENDING[key] = proc
     return proc, out
+
+
+def send_login_code(engine: str, code: str) -> tuple[bool, str]:
+    """브라우저에서 받은 코드를 로그인 절차에 넣어준다."""
+    proc = _PENDING.get(engine)
+    if proc is None or proc.poll() is not None:
+        return False, "로그인 절차가 끝났거나 시작되지 않았습니다. 다시 눌러 주세요."
+    code = (code or "").strip()
+    if not code:
+        return False, "코드를 붙여넣어 주세요."
+    try:
+        proc.stdin.write(code + "\n")
+        proc.stdin.flush()
+    except Exception as e:                              # noqa: BLE001
+        return False, f"코드를 전달하지 못했습니다: {e}"
+    return True, "코드를 넣었습니다. 확인 중…"
 
 
 def _login_url(out: Path, wait: float = 12.0) -> str | None:
@@ -252,7 +285,7 @@ def open_login_gpt() -> tuple[bool, str]:
     if not exe:
         return False, "먼저 Codex CLI 를 설치해야 합니다.", None
     try:
-        _proc, out = _spawn_login([exe, "login"])
+        _proc, out = _spawn_login([exe, "login"], key="gpt")
     except Exception as e:                              # noqa: BLE001
         return False, f"로그인을 시작하지 못했습니다: {e}", None
 
@@ -340,8 +373,11 @@ def open_login() -> tuple[bool, str]:
     exe = ai.find_cli()
     if not exe:
         return False, "먼저 Claude Code CLI 를 설치해야 합니다.", None
+    # setup-token 은 자동화용 토큰을 만드는 명령이지 로그인이 아니다.
+    # 로그인은 auth login 이다.
     try:
-        _proc, out = _spawn_login([exe, "setup-token"])
+        _proc, out = _spawn_login([exe, "auth", "login", "--claudeai"],
+                                  key="claude")
     except Exception as e:                              # noqa: BLE001
         return False, f"로그인을 시작하지 못했습니다: {e}", None
 
@@ -364,7 +400,7 @@ MANUAL_STEPS = [
         "title": "2. 로그인",
         "why": "실행하면 브라우저가 열립니다. Claude 계정으로 로그인하면 끝입니다. "
                "로그인 후 이 창의 ‘다시 확인’을 누르세요.",
-        "cmd": "claude setup-token",
+        "cmd": "claude auth login",
         "link": "",
     },
 ]

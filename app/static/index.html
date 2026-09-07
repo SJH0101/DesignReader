@@ -210,6 +210,17 @@
 
     <div id="autoLog" class="setup-log hidden"></div>
 
+    <div id="codeBox" class="code-box hidden">
+      <label for="loginCode">브라우저에서 받은 코드를 붙여넣으세요</label>
+      <div class="code-row">
+        <input id="loginCode" type="text" autocomplete="off" spellcheck="false"
+               placeholder="여기에 붙여넣기">
+        <button id="codeSend" class="primary">확인</button>
+      </div>
+      <a id="codeLink" href="#" target="_blank" class="code-link hidden">
+        브라우저가 안 열렸나요? 여기를 누르세요</a>
+    </div>
+
     <div class="sheet-foot">
       <button id="setupRecheck" class="ghost">다시 확인</button>
       <button id="setupClose" class="ghost">닫기</button>

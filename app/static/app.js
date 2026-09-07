@@ -2181,6 +2181,7 @@ on("#setupModal", "click", async e => {
       await new Promise(r => setTimeout(r, 1500));
       const st = await (await fetch(`/api/job/${j.job}`)).json();
       log.textContent = st.msg || "진행 중…";
+      showCodeBox(st);
       if (st.state === "done") {
         toast(`${name} 연결됐습니다`);
         break;
@@ -2198,10 +2199,53 @@ on("#setupModal", "click", async e => {
   } finally {
     b.textContent = was;
     document.querySelectorAll("[data-conn]").forEach(x => x.disabled = false);
+    hideCodeBox();
     refreshSetup();
     refreshStatus();
   }
 });
+
+/* Claude 로그인은 브라우저에서 받은 코드를 붙여넣어야 끝난다.
+   터미널을 쓰지 않으려면 그 칸이 앱 안에 있어야 한다. */
+let codeEngine = "claude";
+function showCodeBox(st) {
+  const box = $("#codeBox");
+  if (!st || !st.needs_code || st.state !== "running") return;
+  codeEngine = st.which || "claude";
+  box.classList.remove("hidden");
+  const a = $("#codeLink");
+  if (st.url) { a.href = st.url; a.classList.remove("hidden"); }
+  const inp = $("#loginCode");
+  if (document.activeElement !== inp) inp.focus();
+}
+function hideCodeBox() {
+  $("#codeBox").classList.add("hidden");
+  $("#loginCode").value = "";
+  $("#codeLink").classList.add("hidden");
+}
+
+async function sendLoginCode() {
+  const inp = $("#loginCode");
+  const code = inp.value.trim();
+  if (!code) { inp.focus(); return; }
+  const btn = $("#codeSend");
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/setup/code", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ engine: codeEngine, code })
+    });
+    const j = await r.json();
+    $("#autoLog").textContent = j.error || j.msg || "확인 중…";
+    if (!j.error) inp.value = "";
+  } catch (e) {
+    $("#autoLog").textContent = "코드를 전달하지 못했습니다: " + e;
+  } finally {
+    btn.disabled = false;
+  }
+}
+on("#codeSend", "click", sendLoginCode);
+on("#loginCode", "keydown", e => { if (e.key === "Enter") sendLoginCode(); });
 
 /* 처음 켰을 때 — Claude 가 연결돼 있지 않으면 설정을 먼저 안내한다 */
 let firstRunDone = false;
